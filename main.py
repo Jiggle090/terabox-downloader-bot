@@ -1,69 +1,92 @@
-import re
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
-# ───────── CONFIG ─────────
 BOT_TOKEN = "8010597644:AAEsrJEz51DraEyLI2f1NUUH3KQUn7FtE1Y"
-
-# If you want the Share button to open your bot, put your bot link here:
-SHARE_URL = "https://t.me/TeraDOWN9_bot"   # <- CHANGE THIS LATER
-
 FREE_CREDITS = 3
 
-# Two example TeraBox APIs (these may change in future – you can replace with your own)
-API_1 = "https://tb.rip/api?url={url}"
-API_2 = "https://api.terabox.tech/api/download?url={url}"
-# ──────────────────────────
+TERABOX_API = "https://teraboxapi.com/api?url="     # working API
 
-user_credits = {}  # user_id -> remaining credits
+user_credits = {}
 
+async def start(update, context):
+    user_id = update.effective_user.id
+    if user_id not in user_credits:
+        user_credits[user_id] = FREE_CREDITS
 
-# ───────── HELPER: PARSE SIZE INTO MB ─────────
-def parse_size_mb(size_value):
-    """
-    Tries to convert different 'size' formats into MB (float).
-    Examples:
-      "123.4 MB" -> 123.4
-      "1.2 GB"   -> 1228.8
-      10485760   -> 10.0 (bytes)
-    Returns None if unknown.
-    """
-    if size_value is None:
-        return None
-
-    # If it's already a number (bytes assumed)
-    if isinstance(size_value, (int, float)):
-        # assume bytes
-        return float(size_value) / (1024 * 1024)
-
-    if isinstance(size_value, str):
-        text = size_value.strip().lower()
-        m = re.search(r"([\d.]+)", text)
-        if not m:
-            return None
-        num = float(m.group(1))
-
-        if "gb" in text:
-            return num * 1024.0
-        # assume MB by default
-        return num
-
-    return None
+    await update.message.reply_text(
+        f"👋 Welcome!\n🎁 Free credits: {user_credits[user_id]}\nSend any TeraBox link!"
+    )
 
 
-# ───────── HELPER: CALL A SINGLE API ─────────
-def call_single_api(api_template, url):
+async def handle(update, context):
+    user_id = update.effective_user.id
+    text = update.message.text
+
+    # Credits check
+    if user_id not in user_credits:
+        user_credits[user_id] = FREE_CREDITS
+
+    if user_credits[user_id] <= 0:
+        return await update.message.reply_text("❌ No free credits left!")
+
+    # Validate link
+    if "terabox" not in text and "1024tera" not in text:
+        return await update.message.reply_text("❗ Please send a valid TeraBox link.")
+
+    await update.message.reply_text("⏳ Fetching download link...")
+
+    # Call API
     try:
-        full_url = api_template.format(url=url)
-        resp = requests.get(full_url, timeout=20)
-        if resp.status_code != 200:
-            print("API status code:", resp.status_code)
-            return None
+        result = requests.get(TERABOX_API + text).json()
+    except:
+        return await update.message.reply_text("❌ API Error. Try again.")
 
-        data = resp.json()
-        print("API response:", data)
+    if result.get("status") != True:
+        return await update.message.reply_text("❌ Could not extract video. Link invalid or protected.")
 
+    # Extract info
+    direct_url = result.get("download")
+    title = result.get("title", "TeraBox Video")
+    size = result.get("size", "Unknown")
+    thumb = result.get("thumbnail")
+
+    # Create buttons
+    buttons = [
+        [InlineKeyboardButton("🔥 Fast Download 🔥", url=direct_url)]
+    ]
+    reply_markup = InlineKeyboardMarkup(buttons)
+
+    # Try sending video if small
+    try:
+        if "MB" in size and float(size.replace("MB", "").strip()) <= 50:
+            await context.bot.send_video(
+                chat_id=update.effective_chat.id,
+                video=direct_url,
+                caption=f"🎬 {title}\n📏 Size: {size}",
+                reply_markup=reply_markup
+            )
+        else:
+            raise Exception("Large file")
+    except:
+        msg = (
+            f"🎬 *{title}*\n"
+            f"📏 Size: {size}\n\n"
+            f"Click below to download:"
+        )
+        await update.message.reply_markdown(msg, reply_markup=reply_markup)
+
+    # Reduce credit
+    user_credits[user_id] -= 1
+    await update.message.reply_text(f"✅ Done! Remaining credits: {user_credits[user_id]}")
+
+
+# Build bot
+app = Application.builder().token(BOT_TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+app.run_polling()
         # Some APIs wrap data inside "data" key
         info = data.get("data", data)
 
