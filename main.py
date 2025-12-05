@@ -5,12 +5,13 @@ from telegram.ext import Application, CommandHandler, MessageHandler, ContextTyp
 BOT_TOKEN = "8010597644:AAEsrJEz51DraEyLI2f1NUUH3KQUn7FtE1Y"
 FREE_CREDITS = 3
 
-TERABOX_API = "https://teraboxapi.com/api?url="     # working API
+TERABOX_API = "https://teraboxapi.com/api?url="  # working API
 
 user_credits = {}
 
 async def start(update, context):
     user_id = update.effective_user.id
+
     if user_id not in user_credits:
         user_credits[user_id] = FREE_CREDITS
 
@@ -23,47 +24,77 @@ async def handle(update, context):
     user_id = update.effective_user.id
     text = update.message.text
 
-    # Credits check
     if user_id not in user_credits:
         user_credits[user_id] = FREE_CREDITS
 
     if user_credits[user_id] <= 0:
-        return await update.message.reply_text("❌ No free credits left!")
+        await update.message.reply_text("❌ No free credits left!")
+        return
 
-    # Validate link
     if "terabox" not in text and "1024tera" not in text:
-        return await update.message.reply_text("❗ Please send a valid TeraBox link.")
+        await update.message.reply_text("❗ Please send a valid TeraBox link.")
+        return
 
     await update.message.reply_text("⏳ Fetching download link...")
 
-    # Call API
     try:
-        result = requests.get(TERABOX_API + text).json()
+        response = requests.get(TERABOX_API + text)
+        data = response.json()
     except:
-        return await update.message.reply_text("❌ API Error. Try again.")
+        await update.message.reply_text("❌ API error. Please try again later.")
+        return
 
-    if result.get("status") != True:
-        return await update.message.reply_text("❌ Could not extract video. Link invalid or protected.")
+    if data.get("status") != True:
+        await update.message.reply_text("❌ Could not extract download link.")
+        return
 
-    # Extract info
-    direct_url = result.get("download")
-    title = result.get("title", "TeraBox Video")
-    size = result.get("size", "Unknown")
-    thumb = result.get("thumbnail")
+    direct_url = data.get("download")
+    title = data.get("title", "TeraBox Video")
+    size = data.get("size", "Unknown")
+    thumb = data.get("thumbnail")
 
-    # Create buttons
     buttons = [
         [InlineKeyboardButton("🔥 Fast Download 🔥", url=direct_url)]
     ]
     reply_markup = InlineKeyboardMarkup(buttons)
 
-    # Try sending video if small
-    try:
-        if "MB" in size and float(size.replace("MB", "").strip()) <= 50:
-            await context.bot.send_video(
-                chat_id=update.effective_chat.id,
-                video=direct_url,
-                caption=f"🎬 {title}\n📏 Size: {size}",
+    sent_video = False
+
+    if "MB" in size:
+        try:
+            file_mb = float(size.replace("MB", "").strip())
+            if file_mb <= 50:
+                await context.bot.send_video(
+                    chat_id=update.effective_chat.id,
+                    video=direct_url,
+                    caption=f"🎬 {title}\n📏 Size: {size}",
+                    reply_markup=reply_markup
+                )
+                sent_video = True
+        except:
+            pass
+
+    if not sent_video:
+        caption = (
+            f"🎬 *{title}*\n"
+            f"📏 Size: {size}\n\n"
+            f"Click below to download:"
+        )
+        await update.message.reply_markdown(
+            caption, reply_markup=reply_markup
+        )
+
+    user_credits[user_id] -= 1
+    await update.message.reply_text(
+        f"✅ Done!\nRemaining credits: {user_credits[user_id]}"
+    )
+
+
+app = Application.builder().token(BOT_TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+app.run_polling()                caption=f"🎬 {title}\n📏 Size: {size}",
                 reply_markup=reply_markup
             )
         else:
