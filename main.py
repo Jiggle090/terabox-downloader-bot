@@ -2,7 +2,7 @@ import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
-BOT_TOKEN = "8010597644:AAHZJX2vNCs_zsKCE7JZI50z2v8GFPf878g"
+BOT_TOKEN = "8010597644:AAGiz57xHENfGp85jB8LIumf-2ydfFxgdAE"
 FREE_CREDITS = 3
 API_URL = "https://teraboxapi.com/api?url="
 
